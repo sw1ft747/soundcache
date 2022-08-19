@@ -1,0 +1,3 @@
+[submodule "svenmod"]
+	path = svenmod
+	url = https://github.com/sw1ft747/svenmod.git
