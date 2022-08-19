@@ -233,6 +233,8 @@ api_version_s CSoundcache::GetAPIVersion()
 
 bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenModAPI, IPluginHelpers *pPluginHelpers)
 {
+	BindApiToGlobals(pSvenModAPI);
+
 	m_pfnCClient_SoundEngine__LoadSoundList = MemoryUtils()->FindPattern( SvenModAPI()->Modules()->Client, Patterns::Client::CClient_SoundEngine__LoadSoundList );
 
 	if ( !m_pfnCClient_SoundEngine__LoadSoundList )
