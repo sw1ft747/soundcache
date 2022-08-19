@@ -94,6 +94,8 @@ ConVar autosave_soundcache("autosave_soundcache", "1", FCVAR_CLIENTDLL, "Automat
 
 void HOOKED_NetMsgHook_ResourceList(void)
 {
+	Warning("ResourceList\n");
+
 	if ( !autosave_soundcache.GetBool() || paused )
 		return ORIG_NetMsgHook_ResourceList();
 
@@ -173,6 +175,8 @@ void HOOKED_NetMsgHook_ResourceList(void)
 
 DECLARE_CLASS_FUNC(bool, HOOKED_CClient_SoundEngine__LoadSoundList, void *thisptr)
 {
+	Warning("LoadSoundList\n");
+
 	if ( !autosave_soundcache.GetBool() || paused )
 		return ORIG_CClient_SoundEngine__LoadSoundList(thisptr);
 
@@ -245,6 +249,8 @@ bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenMo
 		return false;
 	}
 
+	ConVar_Register();
+
 	ConColorMsg({ 40, 255, 40, 255 }, "[Soundcache] Successfully loaded\n");
 	return true;
 }
@@ -271,6 +277,8 @@ void CSoundcache::Unload(void)
 {
 	DetoursAPI()->RemoveDetour( m_hNetMsgHook_ResourceList );
 	DetoursAPI()->RemoveDetour( m_hCClient_SoundEngine__LoadSoundList );
+
+	ConVar_Unregister();
 }
 
 bool CSoundcache::Pause(void)
