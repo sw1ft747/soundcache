@@ -11,4 +11,4 @@ Sometimes server can update its sounds and soundcache will change, in this case 
 
 To solve it, go to this folder: `Sven Co-op/svencoop_downloads/maps/soundcache/`.
 
-Find the folder with the name that starts with IP of the server, open it. Then find the `*.txt` file with the name of map on which you have irregular soundcache.
+Find the folder with the name that starts with IP of the server, open it. Then find the `*.txt` file with the name of map on which you have irregular soundcache, delete this file.
