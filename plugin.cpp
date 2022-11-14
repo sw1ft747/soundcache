@@ -33,11 +33,19 @@ public:
 
 	virtual void Unpause(void);
 
+	virtual void OnFirstClientdataReceived(client_data_t *pcldata, float flTime);
+
+	virtual void OnBeginLoading(void);
+
+	virtual void OnEndLoading(void);
+
+	virtual void OnDisconnect(void);
+
 	virtual void GameFrame(client_state_t state, double frametime, bool bPostRunCmd);
 
-	virtual PLUGIN_RESULT Draw(void);
+	virtual void Draw(void);
 
-	virtual PLUGIN_RESULT DrawHUD(float time, int intermission);
+	virtual void DrawHUD(float time, int intermission);
 
 	virtual const char *GetName(void);
 
@@ -55,8 +63,10 @@ public:
 
 private:
 	void *m_pfnCClient_SoundEngine__LoadSoundList;
+	void *m_pfnCClient_SoundEngine__FlushCache;
 
 	DetourHandle_t m_hCClient_SoundEngine__LoadSoundList;
+	DetourHandle_t m_hCClient_SoundEngine__FlushCache;
 	DetourHandle_t m_hNetMsgHook_ResourceList;
 };
 
@@ -65,6 +75,7 @@ private:
 //-----------------------------------------------------------------------------
 
 DECLARE_CLASS_HOOK(bool, CClient_SoundEngine__LoadSoundList, void *thisptr);
+DECLARE_CLASS_HOOK(void, CClient_SoundEngine__FlushCache, void *thisptr, bool host);
 
 //-----------------------------------------------------------------------------
 // Vars
@@ -80,13 +91,15 @@ static char szServerSoundcacheDir[MAX_PATH];
 static char szServerSoundcacheFolder[MAX_PATH];
 
 bool bHasSoundcache = false;
+bool bUseSavedSoundcache = false;
 bool paused = false;
 
 //-----------------------------------------------------------------------------
 // ConCommands, CVars..
 //-----------------------------------------------------------------------------
 
-ConVar autosave_soundcache("autosave_soundcache", "1", FCVAR_CLIENTDLL, "Automatically save soundcache");
+ConVar soundcache_autosave("soundcache_autosave", "1", FCVAR_CLIENTDLL, "Automatically save soundcache");
+ConVar soundcache_dont_flush("soundcache_dont_flush", "0", FCVAR_CLIENTDLL, "Don't flush soundcache");
 
 //-----------------------------------------------------------------------------
 // Hooks
@@ -94,13 +107,21 @@ ConVar autosave_soundcache("autosave_soundcache", "1", FCVAR_CLIENTDLL, "Automat
 
 void HOOKED_NetMsgHook_ResourceList(void)
 {
-	Warning("ResourceList\n");
+	bUseSavedSoundcache = false;
 
-	if ( !autosave_soundcache.GetBool() || paused )
+	if ( !soundcache_autosave.GetBool() || paused )
 		return ORIG_NetMsgHook_ResourceList();
+
+	constexpr int localhost = 0x7F000001; // 127.0.0.1
 
 	netadr_t addr;
 	int port;
+
+	g_pEngineClient->GetServerAddress( &addr );
+	port = (addr.port << 8) | (addr.port >> 8); // it's swapped
+
+	if ( *(int *)addr.ip == 0 || *(int *)addr.ip == localhost )
+		return ORIG_NetMsgHook_ResourceList();
 
 	char mapname_buffer[MAX_PATH];
 
@@ -133,9 +154,6 @@ void HOOKED_NetMsgHook_ResourceList(void)
 
 		pszExt++;
 	}
-
-	g_pEngineClient->GetServerAddress(&addr);
-	port = (addr.port << 8) | (addr.port >> 8); // it's swapped
 
 	strncpy(szMapName, pszMapName, MAX_PATH);
 
@@ -170,14 +188,14 @@ void HOOKED_NetMsgHook_ResourceList(void)
 		bHasSoundcache = false;
 	}
 
+	bUseSavedSoundcache = true;
+
 	ORIG_NetMsgHook_ResourceList();
 }
 
 DECLARE_CLASS_FUNC(bool, HOOKED_CClient_SoundEngine__LoadSoundList, void *thisptr)
 {
-	Warning("LoadSoundList\n");
-
-	if ( !autosave_soundcache.GetBool() || paused )
+	if ( !soundcache_autosave.GetBool() || !bUseSavedSoundcache || paused )
 		return ORIG_CClient_SoundEngine__LoadSoundList(thisptr);
 
 	if ( g_pFileSystem->FileExists(szSoundcacheDir) )
@@ -226,6 +244,15 @@ DECLARE_CLASS_FUNC(bool, HOOKED_CClient_SoundEngine__LoadSoundList, void *thispt
 
 	return ORIG_CClient_SoundEngine__LoadSoundList(thisptr);
 }
+
+DECLARE_CLASS_FUNC(void, HOOKED_CClient_SoundEngine__FlushCache, void *thisptr, bool host)
+{
+	if ( soundcache_dont_flush.GetBool() )
+		return;
+
+	return ORIG_CClient_SoundEngine__FlushCache(thisptr, host);
+}
+
 //-----------------------------------------------------------------------------
 // Plugin's implementation
 //-----------------------------------------------------------------------------
@@ -244,6 +271,16 @@ bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenMo
 	if ( !m_pfnCClient_SoundEngine__LoadSoundList )
 	{
 		Warning("Couldn't find function \"CClient_SoundEngine::LoadSoundList\"\n");
+		Warning("[Soundcache] Failed to initialize\n");
+
+		return false;
+	}
+	
+	m_pfnCClient_SoundEngine__FlushCache = MemoryUtils()->FindPattern( SvenModAPI()->Modules()->Client, Patterns::Client::CClient_SoundEngine__FlushCache );
+
+	if ( !m_pfnCClient_SoundEngine__FlushCache )
+	{
+		Warning("Couldn't find function \"CClient_SoundEngine::FlushCache\"\n");
 		Warning("[Soundcache] Failed to initialize\n");
 
 		return false;
@@ -271,12 +308,17 @@ void CSoundcache::PostLoad(bool bGlobalLoad)
 	m_hCClient_SoundEngine__LoadSoundList = DetoursAPI()->DetourFunction( m_pfnCClient_SoundEngine__LoadSoundList,
 																		 HOOKED_CClient_SoundEngine__LoadSoundList,
 																		 GET_FUNC_PTR(ORIG_CClient_SoundEngine__LoadSoundList) );
+
+	m_hCClient_SoundEngine__FlushCache = DetoursAPI()->DetourFunction( m_pfnCClient_SoundEngine__FlushCache,
+																		 HOOKED_CClient_SoundEngine__FlushCache,
+																		 GET_FUNC_PTR(ORIG_CClient_SoundEngine__FlushCache) );
 }
 
 void CSoundcache::Unload(void)
 {
 	DetoursAPI()->RemoveDetour( m_hNetMsgHook_ResourceList );
 	DetoursAPI()->RemoveDetour( m_hCClient_SoundEngine__LoadSoundList );
+	DetoursAPI()->RemoveDetour( m_hCClient_SoundEngine__FlushCache );
 
 	ConVar_Unregister();
 }
@@ -292,6 +334,22 @@ void CSoundcache::Unpause(void)
 	paused = false;
 }
 
+void CSoundcache::OnFirstClientdataReceived(client_data_t *pcldata, float flTime)
+{
+}
+
+void CSoundcache::OnBeginLoading(void)
+{
+}
+
+void CSoundcache::OnEndLoading(void)
+{
+}
+
+void CSoundcache::OnDisconnect(void)
+{
+}
+
 void CSoundcache::GameFrame(client_state_t state, double frametime, bool bPostRunCmd)
 {
 	if (bPostRunCmd)
@@ -302,14 +360,12 @@ void CSoundcache::GameFrame(client_state_t state, double frametime, bool bPostRu
 	}
 }
 
-PLUGIN_RESULT CSoundcache::Draw(void)
+void CSoundcache::Draw(void)
 {
-	return PLUGIN_CONTINUE;
 }
 
-PLUGIN_RESULT CSoundcache::DrawHUD(float time, int intermission)
+void CSoundcache::DrawHUD(float time, int intermission)
 {
-	return PLUGIN_CONTINUE;
 }
 
 const char *CSoundcache::GetName(void)
@@ -324,7 +380,7 @@ const char *CSoundcache::GetAuthor(void)
 
 const char *CSoundcache::GetVersion(void)
 {
-	return "1.0.0";
+	return "1.0.1";
 }
 
 const char *CSoundcache::GetDescription(void)
