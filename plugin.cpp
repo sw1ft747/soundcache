@@ -100,6 +100,7 @@ bool paused = false;
 
 ConVar soundcache_autosave("soundcache_autosave", "1", FCVAR_CLIENTDLL, "Automatically save soundcache");
 ConVar soundcache_dont_flush("soundcache_dont_flush", "0", FCVAR_CLIENTDLL, "Don't flush soundcache");
+ConVar soundcache_ignore("soundcache_ignore", "0", FCVAR_CLIENTDLL, "Don't download/save/use soundcache");
 
 //-----------------------------------------------------------------------------
 // Hooks
@@ -109,7 +110,7 @@ void HOOKED_NetMsgHook_ResourceList(void)
 {
 	bUseSavedSoundcache = false;
 
-	if ( !soundcache_autosave.GetBool() || paused )
+	if ( ( !soundcache_autosave.GetBool() && !soundcache_ignore.GetBool() ) || paused )
 		return ORIG_NetMsgHook_ResourceList();
 
 	constexpr int localhost = 0x7F000001; // 127.0.0.1
@@ -161,6 +162,30 @@ void HOOKED_NetMsgHook_ResourceList(void)
 	snprintf(szServerSoundcacheDir, MAX_PATH, "maps\\soundcache\\%hhu.%hhu.%hhu.%hhu %hu\\%s.txt", addr.ip[0], addr.ip[1], addr.ip[2], addr.ip[3], port, szMapName);
 	snprintf(szServerSoundcacheFolder, MAX_PATH, "maps\\soundcache\\%hhu.%hhu.%hhu.%hhu %hu", addr.ip[0], addr.ip[1], addr.ip[2], addr.ip[3], port);
 
+	// Skip download of soundcache
+	if ( soundcache_ignore.GetBool() )
+	{
+		FileHandle_t hFile = g_pFileSystem->Open(szSoundcacheDir, "a+", "GAMEDOWNLOAD"); // dummy
+
+		if ( hFile )
+		{
+			// Empty infos
+			g_pFileSystem->FPrintf( hFile, "%s\n", szMapName );
+			g_pFileSystem->FPrintf( hFile, "%hhu.%hhu.%hhu.%hhu\n", addr.ip[0], addr.ip[1], addr.ip[2], addr.ip[3] );
+			g_pFileSystem->FPrintf( hFile, "SOUNDLIST {\n" );
+			g_pFileSystem->FPrintf( hFile, "}\n" );
+			g_pFileSystem->FPrintf( hFile, "SENTENCELIST {\n" );
+			g_pFileSystem->FPrintf( hFile, "}\n" );
+			g_pFileSystem->FPrintf( hFile, "CUSTOMMATERIALS {\n" );
+			g_pFileSystem->FPrintf( hFile, "}\n" );
+
+			g_pFileSystem->Close( hFile );
+		}
+
+		ORIG_NetMsgHook_ResourceList();
+		return;
+	}
+
 	// Uh we have the soundcache that wasn't deleted
 	if ( g_pFileSystem->FileExists(szSoundcacheDir) )
 	{
@@ -195,7 +220,7 @@ void HOOKED_NetMsgHook_ResourceList(void)
 
 DECLARE_CLASS_FUNC(bool, HOOKED_CClient_SoundEngine__LoadSoundList, void *thisptr)
 {
-	if ( !soundcache_autosave.GetBool() || !bUseSavedSoundcache || paused )
+	if ( !soundcache_autosave.GetBool() || soundcache_ignore.GetBool() || !bUseSavedSoundcache || paused)
 		return ORIG_CClient_SoundEngine__LoadSoundList(thisptr);
 
 	if ( g_pFileSystem->FileExists(szSoundcacheDir) )
@@ -287,6 +312,8 @@ bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenMo
 	}
 
 	ConVar_Register();
+
+	g_pEngineFuncs->ClientCmd("exec soundcache.cfg\n");
 
 	ConColorMsg({ 40, 255, 40, 255 }, "[Soundcache] Successfully loaded\n");
 	return true;
@@ -380,7 +407,7 @@ const char *CSoundcache::GetAuthor(void)
 
 const char *CSoundcache::GetVersion(void)
 {
-	return "1.0.1";
+	return "1.0.2";
 }
 
 const char *CSoundcache::GetDescription(void)
