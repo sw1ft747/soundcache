@@ -11,7 +11,7 @@ namespace Patterns
 {
 	namespace Client
 	{
-		EXTERN_PATTERN(CClient_SoundEngine__LoadSoundList);
+		EXTERN_PATTERNS(CClient_SoundEngine__LoadSoundList);
 		EXTERN_PATTERN(CClient_SoundEngine__FlushCache);
 	}
 }

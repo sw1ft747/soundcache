@@ -291,7 +291,13 @@ bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenMo
 {
 	BindApiToGlobals(pSvenModAPI);
 
-	m_pfnCClient_SoundEngine__LoadSoundList = MemoryUtils()->FindPattern( SvenModAPI()->Modules()->Client, Patterns::Client::CClient_SoundEngine__LoadSoundList );
+	int patternIndex;
+
+	DEFINE_PATTERNS_FUTURE( fCClient_SoundEngine__LoadSoundList );
+
+	MemoryUtils()->FindPatternAsync( SvenModAPI()->Modules()->Client, Patterns::Client::CClient_SoundEngine__LoadSoundList, fCClient_SoundEngine__LoadSoundList );
+
+	m_pfnCClient_SoundEngine__LoadSoundList = MemoryUtils()->GetPatternFutureValue( fCClient_SoundEngine__LoadSoundList, &patternIndex );
 
 	if ( !m_pfnCClient_SoundEngine__LoadSoundList )
 	{
@@ -299,6 +305,10 @@ bool CSoundcache::Load(CreateInterfaceFn pfnSvenModFactory, ISvenModAPI *pSvenMo
 		Warning("[Soundcache] Failed to initialize\n");
 
 		return false;
+	}
+	else
+	{
+		DevMsg( "[IMM] Found function \"CClient_SoundEngine::LoadSoundList\" for version \"%s\"\n", GET_PATTERN_NAME_BY_INDEX( Patterns::Client::CClient_SoundEngine__LoadSoundList, patternIndex ) );
 	}
 	
 	m_pfnCClient_SoundEngine__FlushCache = MemoryUtils()->FindPattern( SvenModAPI()->Modules()->Client, Patterns::Client::CClient_SoundEngine__FlushCache );
